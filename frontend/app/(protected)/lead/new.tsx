@@ -1,0 +1,111 @@
+import React, { useState } from 'react';
+import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, SafeAreaView, Alert } from 'react-native';
+import { useRouter } from 'expo-router';
+import { api } from '../../../src/utils/api';
+import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/utils/theme';
+import { Ionicons } from '@expo/vector-icons';
+
+export default function NewLeadScreen() {
+  const router = useRouter();
+  const [form, setForm] = useState({ name: '', phone: '', email: '', company: '', vehicle_type: 'Car', vehicle_number: '', insurance_type: 'comprehensive', source: 'direct', priority: 'medium', notes: '' });
+  const [loading, setLoading] = useState(false);
+
+  const update = (key: string, val: string) => setForm(p => ({ ...p, [key]: val }));
+
+  const submit = async () => {
+    if (!form.name || !form.phone) { Alert.alert('Error', 'Name and phone are required'); return; }
+    setLoading(true);
+    try {
+      await api.post('/leads/', form);
+      router.back();
+    } catch (e: any) { Alert.alert('Error', e.message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.header}>
+        <Pressable testID="back-btn" onPress={() => router.back()} style={styles.backBtn}><Ionicons name="close" size={24} color={Colors.text} /></Pressable>
+        <Text style={styles.headerTitle}>New Lead</Text>
+        <Pressable testID="save-lead-btn" onPress={submit} disabled={loading} style={styles.saveBtn}><Text style={styles.saveBtnText}>{loading ? 'Saving...' : 'Save'}</Text></Pressable>
+      </View>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+          <Text style={styles.label}>NAME *</Text>
+          <TextInput testID="lead-name-input" style={styles.input} placeholder="Full name" placeholderTextColor={Colors.textLight} value={form.name} onChangeText={v => update('name', v)} />
+
+          <Text style={styles.label}>PHONE *</Text>
+          <TextInput testID="lead-phone-input" style={styles.input} placeholder="Phone number" placeholderTextColor={Colors.textLight} value={form.phone} onChangeText={v => update('phone', v)} keyboardType="phone-pad" />
+
+          <Text style={styles.label}>EMAIL</Text>
+          <TextInput testID="lead-email-input" style={styles.input} placeholder="Email address" placeholderTextColor={Colors.textLight} value={form.email} onChangeText={v => update('email', v)} keyboardType="email-address" autoCapitalize="none" />
+
+          <Text style={styles.label}>COMPANY</Text>
+          <TextInput style={styles.input} placeholder="Company name" placeholderTextColor={Colors.textLight} value={form.company} onChangeText={v => update('company', v)} />
+
+          <Text style={styles.label}>VEHICLE TYPE</Text>
+          <View style={styles.chipRow}>
+            {['Car', 'Two Wheeler', 'Truck', 'Commercial'].map(t => (
+              <Pressable key={t} style={[styles.chip, form.vehicle_type === t && styles.chipActive]} onPress={() => update('vehicle_type', t)}>
+                <Text style={[styles.chipText, form.vehicle_type === t && styles.chipTextActive]}>{t}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Text style={styles.label}>VEHICLE NUMBER</Text>
+          <TextInput style={styles.input} placeholder="e.g., MH01AB1234" placeholderTextColor={Colors.textLight} value={form.vehicle_number} onChangeText={v => update('vehicle_number', v)} autoCapitalize="characters" />
+
+          <Text style={styles.label}>INSURANCE TYPE</Text>
+          <View style={styles.chipRow}>
+            {['comprehensive', 'third_party', 'commercial'].map(t => (
+              <Pressable key={t} style={[styles.chip, form.insurance_type === t && styles.chipActive]} onPress={() => update('insurance_type', t)}>
+                <Text style={[styles.chipText, form.insurance_type === t && styles.chipTextActive]}>{t.replace(/_/g, ' ')}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Text style={styles.label}>SOURCE</Text>
+          <View style={styles.chipRow}>
+            {['direct', 'referral', 'website', 'walk_in', 'cold_call', 'social_media'].map(t => (
+              <Pressable key={t} style={[styles.chip, form.source === t && styles.chipActive]} onPress={() => update('source', t)}>
+                <Text style={[styles.chipText, form.source === t && styles.chipTextActive]}>{t.replace(/_/g, ' ')}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Text style={styles.label}>PRIORITY</Text>
+          <View style={styles.chipRow}>
+            {['low', 'medium', 'high'].map(t => (
+              <Pressable key={t} style={[styles.chip, form.priority === t && styles.chipActive]} onPress={() => update('priority', t)}>
+                <Text style={[styles.chipText, form.priority === t && styles.chipTextActive]}>{t}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Text style={styles.label}>NOTES</Text>
+          <TextInput style={[styles.input, styles.textArea]} placeholder="Additional notes..." placeholderTextColor={Colors.textLight} value={form.notes} onChangeText={v => update('notes', v)} multiline numberOfLines={3} />
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: Colors.background },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.md, paddingVertical: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  backBtn: { padding: Spacing.sm },
+  headerTitle: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.text },
+  saveBtn: { backgroundColor: Colors.primary, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, borderRadius: BorderRadius.sm },
+  saveBtnText: { color: Colors.white, fontWeight: '700', fontSize: FontSize.sm },
+  scroll: { flex: 1 },
+  scrollContent: { padding: Spacing.lg },
+  label: { fontSize: FontSize.xs, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginTop: Spacing.lg, marginBottom: Spacing.sm },
+  input: { borderWidth: 1, borderColor: Colors.border, borderRadius: BorderRadius.sm, backgroundColor: Colors.surface, paddingHorizontal: Spacing.lg, height: 48, fontSize: FontSize.md, color: Colors.text },
+  textArea: { height: 80, paddingTop: Spacing.md, textAlignVertical: 'top' },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
+  chip: { paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: BorderRadius.sm, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.surface },
+  chipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  chipText: { fontSize: FontSize.xs, fontWeight: '600', color: Colors.textMuted, textTransform: 'capitalize' },
+  chipTextActive: { color: Colors.white },
+});

@@ -1,0 +1,10 @@
+node_modules/
+.expo/
+.metro-cache/
+dist/
+build/
+android/
+ios/
+.git/
+*.log
+.env*.local

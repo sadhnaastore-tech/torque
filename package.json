@@ -1,0 +1,16 @@
+{
+  "name": "toque-insurance",
+  "private": true,
+  "workspaces": [
+    "admin-panel",
+    "frontend"
+  ],
+  "scripts": {
+    "install:all": "npm install",
+    "dev:admin": "cd admin-panel && npm run dev",
+    "dev:frontend": "cd frontend && npm run web",
+    "dev": "npm run dev:admin & npm run dev:frontend",
+    "prisma:generate": "cd admin-panel && npx prisma generate",
+    "prisma:push": "cd admin-panel && npx prisma db push"
+  }
+}

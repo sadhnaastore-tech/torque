@@ -1,0 +1,34 @@
+import { supabase } from './supabase'
+
+export async function fetchApi(path: string, options: RequestInit = {}, retries = 3) {
+  const { data: { session } } = await supabase.auth.getSession()
+  
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${session?.access_token}`,
+    ...((options.headers as Record<string, string>) || {}),
+  }
+
+  if (!(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json'
+  }
+
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(path, {
+        ...options,
+        headers,
+      })
+
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({ error: 'An unknown error occurred' }))
+        throw new Error(error.error || `HTTP error! status: ${res.status}`)
+      }
+
+      return res.json()
+    } catch (err: any) {
+      if (i === retries - 1) throw err
+      console.warn(`[api] Fetch failed, retrying (${i + 1}/${retries})...`, err.message)
+      await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)))
+    }
+  }
+}

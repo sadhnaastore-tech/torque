@@ -1,0 +1,10 @@
+node_modules/
+admin-panel/
+.next/
+.expo/
+.vscode/
+.idea/
+build/
+dist/
+*.log
+.env*.local
