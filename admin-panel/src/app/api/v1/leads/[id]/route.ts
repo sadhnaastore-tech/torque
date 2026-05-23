@@ -25,6 +25,8 @@ export async function GET(
         policies: true,
         quotations: true,
         claims: true,
+        calls: { orderBy: { createdAt: 'desc' } },
+        statusHistories: { orderBy: { changedAt: 'desc' } },
         followUps: { orderBy: { scheduledAt: 'asc' } }
       }
     })
@@ -48,15 +50,27 @@ export async function PUT(
     const { id } = await params
     const body = await req.json()
     
+    const data: any = {}
+    
+    if (body.clientName !== undefined || body.client_name !== undefined) {
+      data.clientName = body.clientName !== undefined ? body.clientName : body.client_name
+    }
+    if (body.clientEmail !== undefined || body.client_email !== undefined) {
+      data.clientEmail = body.clientEmail !== undefined ? body.clientEmail : body.client_email
+    }
+    if (body.clientPhone !== undefined || body.client_phone !== undefined) {
+      data.clientPhone = body.clientPhone !== undefined ? String(body.clientPhone) : String(body.client_phone)
+    }
+    if (body.status !== undefined) {
+      data.status = body.status
+    }
+    if (body.assignedTo !== undefined || body.assigned_to !== undefined) {
+      data.assignedTo = body.assignedTo !== undefined ? body.assignedTo : body.assigned_to
+    }
+    
     const lead = await prisma.lead.update({
       where: { id },
-      data: {
-        clientName: body.client_name,
-        clientEmail: body.client_email,
-        clientPhone: body.client_phone,
-        status: body.status,
-        assignedTo: body.assigned_to
-      }
+      data
     })
     
     return NextResponse.json(lead)

@@ -2,7 +2,33 @@
 import React, { useState, useEffect } from 'react'
 import AdminLayout from '@/components/layout/AdminLayout'
 import { fetchApi } from '@/lib/api'
-import { Search, Filter, Plus, MoreVertical, ExternalLink, Download, Upload, CheckCircle, AlertCircle, Users, Calendar, RefreshCw, Phone, MessageCircle } from 'lucide-react'
+import { 
+  Search, Filter, Plus, ExternalLink, Upload, CheckCircle, 
+  AlertCircle, Users, Calendar, RefreshCw, Phone, MessageCircle, 
+  X, Check, UserPlus, Clock, Clipboard, FileText, ChevronRight
+} from 'lucide-react'
+
+// Premium WhatsApp Message Templates
+const WHATSAPP_TEMPLATES = [
+  {
+    id: 'renewal',
+    name: 'Standard Renewal Notice',
+    text: (name: string, vehicle: string, expiry: string) => 
+      `Hi ${name},\n\nThis is a renewal reminder from *Torque Auto Advisor* regarding your vehicle *${vehicle}*. Your policy is scheduled to expire on *${expiry}*.\n\nPlease share your current policy copy so we can calculate the best quotes for you!\n\nBest regards,\nTorque Team`
+  },
+  {
+    id: 'callback',
+    name: 'Out of Reach / Callback Request',
+    text: (name: string, vehicle: string) => 
+      `Hi ${name},\n\nWe tried calling you regarding your vehicle *${vehicle}* renewal copy but couldn't get in touch. \n\nPlease let us know a suitable time to call you back, or share your details here!\n\nThanks,\nTorque Team`
+  },
+  {
+    id: 'docs',
+    name: 'Document Collection Request',
+    text: (name: string, vehicle: string) => 
+      `Hi ${name},\n\nRegarding your auto insurance quote for vehicle *${vehicle}*, could you please share a photo/PDF of your:\n1. Previous Insurance Policy\n2. RC Book (Front & Back)\n\nThis will help us apply all applicable discounts (No Claim Bonus, etc.) for your new quote.\n\nThank you!`
+  }
+]
 
 export default function LeadsPage() {
   const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
@@ -10,6 +36,7 @@ export default function LeadsPage() {
 
   const [leads, setLeads] = useState<any[]>([])
   const [stats, setStats] = useState<any>(null)
+  const [employees, setEmployees] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState(initialSearch)
   const [importing, setImporting] = useState(false)
@@ -17,13 +44,36 @@ export default function LeadsPage() {
   const [newLead, setNewLead] = useState({ clientName: '', clientPhone: '', vehicleNo: '', clientEmail: '' })
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  // Status Filter State (for active cards)
+  const [statusFilter, setStatusFilter] = useState('all')
+
   // Date Range State
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
 
+  // Detailed Drawer State
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null)
+  const [detailedLead, setDetailedLead] = useState<any | null>(null)
+  const [isDrawerLoading, setIsDrawerLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState<'info' | 'call' | 'whatsapp'>('info')
+
+  // Call Logger State
+  const [logOutcome, setLogOutcome] = useState('Connected')
+  const [logNotes, setLogNotes] = useState('')
+  const [logFollowupDate, setLogFollowupDate] = useState('')
+  const [isLogging, setIsLogging] = useState(false)
+
+  // WhatsApp Template State
+  const [selectedTemplateId, setSelectedTemplateId] = useState('renewal')
+  const [copiedText, setCopiedText] = useState(false)
+
   useEffect(() => {
     fetchData()
   }, [startDate, endDate])
+
+  useEffect(() => {
+    fetchEmployees()
+  }, [])
 
   const fetchData = async () => {
     setIsLoading(true)
@@ -45,6 +95,104 @@ export default function LeadsPage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const fetchEmployees = async () => {
+    try {
+      const data = await fetchApi('/api/v1/users?limit=100')
+      setEmployees(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('Failed to fetch employees list:', error)
+    }
+  }
+
+  const fetchLeadDetails = async (id: string) => {
+    setIsDrawerLoading(true)
+    try {
+      const data = await fetchApi(`/api/v1/leads/${id}`)
+      setDetailedLead(data)
+    } catch (error) {
+      console.error('Failed to fetch lead details:', error)
+    } finally {
+      setIsDrawerLoading(false)
+    }
+  }
+
+  const handleOpenDrawer = (leadId: string) => {
+    setSelectedLeadId(leadId)
+    fetchLeadDetails(leadId)
+    setActiveTab('info')
+  }
+
+  const handleCloseDrawer = () => {
+    setSelectedLeadId(null)
+    setDetailedLead(null)
+  }
+
+  const handleUpdateLeadStatus = async (newStatus: string) => {
+    if (!detailedLead) return
+    try {
+      const updated = await fetchApi(`/api/v1/leads/${detailedLead.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: newStatus })
+      })
+      setDetailedLead({ ...detailedLead, status: updated.status })
+      fetchData()
+    } catch (error) {
+      alert('Failed to update lead status')
+    }
+  }
+
+  const handleUpdateLeadAssignee = async (newAssigneeId: string) => {
+    if (!detailedLead) return
+    try {
+      const updated = await fetchApi(`/api/v1/leads/${detailedLead.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ 
+          assigned_to: newAssigneeId === 'unassigned' ? null : newAssigneeId 
+        })
+      })
+      // Sync detailed display
+      fetchLeadDetails(detailedLead.id)
+      fetchData()
+    } catch (error) {
+      alert('Failed to update lead assignee')
+    }
+  }
+
+  const handleLogCallResponse = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!detailedLead) return
+    setIsLogging(true)
+    try {
+      const body = {
+        status: logOutcome,
+        notes: logNotes,
+        followupDate: logFollowupDate || undefined
+      }
+      await fetchApi(`/api/v1/leads/${detailedLead.id}/response`, {
+        method: 'POST',
+        body: JSON.stringify(body)
+      })
+      
+      // Reset logging states
+      setLogNotes('')
+      setLogFollowupDate('')
+      
+      // Reload timeline and details
+      fetchLeadDetails(detailedLead.id)
+      fetchData()
+    } catch (error: any) {
+      alert(error.message || 'Failed to log communication log')
+    } finally {
+      setIsLogging(false)
+    }
+  }
+
+  const handleCopyTemplate = (text: string) => {
+    navigator.clipboard.writeText(text)
+    setCopiedText(true)
+    setTimeout(() => setCopiedText(false), 2000)
   }
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -87,146 +235,215 @@ export default function LeadsPage() {
     }
   }
 
-  const filteredLeads = leads.filter(l => 
-    l.clientName?.toLowerCase().includes(search.toLowerCase()) ||
-    l.vehicleNo?.toLowerCase().includes(search.toLowerCase()) ||
-    l.clientPhone?.includes(search)
-  )
+  // Filter Leads based on Search Query AND summaries card selection
+  const filteredLeads = leads.filter(l => {
+    const searchMatch = 
+      l.clientName?.toLowerCase().includes(search.toLowerCase()) ||
+      l.vehicleNo?.toLowerCase().includes(search.toLowerCase()) ||
+      l.clientPhone?.includes(search)
+
+    if (!searchMatch) return false
+
+    // Apply Active Card Filters
+    if (statusFilter === 'all') return true
+    if (statusFilter === 'assigned') return l.assignedTo !== null
+    return l.status?.toUpperCase() === statusFilter.toUpperCase()
+  })
+
+  // Get selected WhatsApp template text
+  const getWhatsAppText = () => {
+    if (!detailedLead) return ''
+    const template = WHATSAPP_TEMPLATES.find(t => t.id === selectedTemplateId)
+    if (!template) return ''
+    
+    const formattedExpiry = detailedLead.expiryDate 
+      ? new Date(detailedLead.expiryDate).toLocaleDateString()
+      : 'N/A'
+      
+    if (template.id === 'renewal') {
+      return template.text(detailedLead.clientName, detailedLead.vehicleNo || 'Vehicle', formattedExpiry)
+    }
+    return template.text(detailedLead.clientName, detailedLead.vehicleNo || 'Vehicle')
+  }
 
   return (
     <AdminLayout>
+      {/* Top action block */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Lead Management</h1>
-          <p className="text-sm text-gray-500 mt-1">Track monthly renewals and employee performance.</p>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Lead Management</h1>
+          <p className="text-sm text-slate-500 mt-1">Track monthly renewals and employee performance.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <input type="file" id="csv-import" className="hidden" accept=".csv,.xlsx" onChange={handleImport} />
-          <label htmlFor="csv-import" className="cursor-pointer px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-all flex items-center gap-2">
-            <Upload size={16} />
+          <label htmlFor="csv-import" className="cursor-pointer px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all flex items-center gap-2 shadow-sm">
+            <Upload size={14} />
             {importing ? 'Importing...' : 'Import Leads'}
           </label>
           <button 
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-all shadow-md"
+            className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-black transition-all shadow-md"
           >
-            <Plus size={18} />
+            <Plus size={16} />
             New Lead
           </button>
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
-        <StatCard title="Total Leads" value={stats?.total || 0} icon={<Users className="text-blue-600" />} color="bg-blue-50" />
-        <StatCard title="Assigned" value={stats?.assigned || 0} icon={<CheckCircle className="text-green-600" />} color="bg-green-50" />
-        <StatCard title="Converted" value={stats?.converted || 0} icon={<CheckCircle className="text-purple-600" />} color="bg-purple-50" />
-        <StatCard title="Followups" value={stats?.followups || 0} icon={<AlertCircle className="text-amber-600" />} color="bg-amber-50" />
+      {/* Summary Cards with click filters */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mt-6">
+        <StatCard 
+          title="Total Leads" 
+          value={stats?.total || 0} 
+          icon={<Users className="text-blue-600" />} 
+          color="bg-white hover:bg-blue-50/20" 
+          isActive={statusFilter === 'all'}
+          onClick={() => setStatusFilter('all')}
+        />
+        <StatCard 
+          title="Assigned" 
+          value={stats?.assigned || 0} 
+          icon={<CheckCircle className="text-emerald-600" />} 
+          color="bg-white hover:bg-emerald-50/20" 
+          isActive={statusFilter === 'assigned'}
+          onClick={() => setStatusFilter('assigned')}
+        />
+        <StatCard 
+          title="Converted" 
+          value={stats?.converted || 0} 
+          icon={<CheckCircle className="text-purple-600" />} 
+          color="bg-white hover:bg-purple-50/20" 
+          isActive={statusFilter === 'Converted'}
+          onClick={() => setStatusFilter('Converted')}
+        />
+        <StatCard 
+          title="Followups" 
+          value={stats?.followups || 0} 
+          icon={<AlertCircle className="text-amber-600" />} 
+          color="bg-white hover:bg-amber-50/20" 
+          isActive={statusFilter === 'Follow Up'}
+          onClick={() => setStatusFilter('Follow Up')}
+        />
       </div>
 
       {/* Filters & Search */}
-      <div className="flex flex-col lg:flex-row lg:items-center gap-4 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm mt-6">
+      <div className="flex flex-col lg:flex-row lg:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mt-6">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
           <input 
             type="text" 
             placeholder="Search by name, phone or vehicle number..." 
-            className="w-full bg-gray-50 border border-gray-200 rounded-xl py-2 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full bg-slate-50 border border-slate-100 rounded-xl py-2.5 pl-10 pr-4 text-xs outline-none focus:ring-2 focus:ring-slate-200 transition-all"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
 
         {/* Date Range Picker */}
-        <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-1.5">
-          <Calendar size={16} className="text-gray-400" />
+        <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2">
+          <Calendar size={14} className="text-slate-400" />
           <input 
             type="date" 
             value={startDate} 
             onChange={e => setStartDate(e.target.value)}
-            className="text-xs font-semibold outline-none bg-transparent w-28"
+            className="text-[10px] font-bold outline-none bg-transparent w-24 text-slate-600"
           />
-          <span className="text-gray-300">—</span>
+          <span className="text-slate-300 text-xs">—</span>
           <input 
             type="date" 
             value={endDate} 
             onChange={e => setEndDate(e.target.value)}
-            className="text-xs font-semibold outline-none bg-transparent w-28"
+            className="text-[10px] font-bold outline-none bg-transparent w-24 text-slate-600"
           />
           {(startDate || endDate) && (
-            <button onClick={() => {setStartDate(''); setEndDate('')}} className="text-gray-400 hover:text-red-500 ml-1">
-              <RefreshCw size={14} />
+            <button onClick={() => {setStartDate(''); setEndDate('')}} className="text-slate-400 hover:text-rose-500 ml-1">
+              <RefreshCw size={12} />
             </button>
           )}
         </div>
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mt-6">
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mt-6">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-gray-50/50">
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Vehicle & Owner</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Status</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Assigned To</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Created</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase text-right">Actions</th>
+              <tr className="bg-slate-50 border-b border-slate-100">
+                <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Vehicle & Owner</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Status</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Assigned To</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Created</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-slate-50">
               {isLoading ? (
-                <tr><td colSpan={5} className="px-6 py-10 text-center text-gray-500">Loading...</td></tr>
+                <tr><td colSpan={5} className="px-6 py-20 text-center text-slate-400 font-semibold">Loading leads...</td></tr>
               ) : filteredLeads.length === 0 ? (
-                <tr><td colSpan={5} className="px-6 py-10 text-center text-gray-500">No leads found in this period.</td></tr>
+                <tr><td colSpan={5} className="px-6 py-20 text-center text-slate-400 font-medium">No leads found in this period.</td></tr>
               ) : filteredLeads.map((lead) => (
-                <tr key={lead.id} className="hover:bg-gray-50/50 transition-colors">
+                <tr 
+                  key={lead.id} 
+                  onClick={() => handleOpenDrawer(lead.id)}
+                  className={`hover:bg-slate-50/50 transition-colors cursor-pointer ${
+                    selectedLeadId === lead.id ? 'bg-slate-50' : ''
+                  }`}
+                >
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div>
-                        <div className="font-bold text-gray-900">{lead.clientName}</div>
-                        <div className="text-xs text-gray-500">{lead.vehicleNo}</div>
+                        <div className="font-bold text-slate-900 text-sm">{lead.clientName}</div>
+                        <div className="text-xs text-slate-400 mt-0.5">{lead.vehicleNo || 'Unknown vehicle'}</div>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1.5 ml-2" onClick={e => e.stopPropagation()}>
                         <a 
                           href={`tel:${lead.clientPhone}`}
-                          className="p-1.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors"
+                          className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors shadow-sm"
                           title="Call now"
                         >
-                          <Phone size={14} />
+                          <Phone size={12} />
                         </a>
                         <a 
                           href={`https://wa.me/91${lead.clientPhone}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors"
+                          className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors shadow-sm"
                           title="WhatsApp message"
                         >
-                          <MessageCircle size={14} />
+                          <MessageCircle size={12} />
                         </a>
                       </div>
                     </div>
                   </td>
 
                   <td className="px-6 py-4">
-                    <span className="px-2 py-1 rounded-md text-[10px] font-bold bg-blue-100 text-blue-700 uppercase">
-                      {lead.status}
+                    <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${
+                      lead.status?.toUpperCase() === 'CONVERTED' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
+                      lead.status?.toUpperCase() === 'FOLLOW UP' ? 'bg-amber-50 border-amber-200 text-amber-600' :
+                      lead.status?.toUpperCase() === 'IN PROGRESS' ? 'bg-indigo-50 border-indigo-200 text-indigo-600' :
+                      lead.status?.toUpperCase() === 'LOST' ? 'bg-rose-50 border-rose-200 text-rose-600' :
+                      'bg-slate-100 border-slate-200 text-slate-500'
+                    }`}>
+                      {lead.status || 'New'}
                     </span>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold">
-                        {lead.assignee?.fullName?.charAt(0) || 'U'}
+                      <div className="w-6 h-6 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-[10px] font-extrabold text-slate-600">
+                        {lead.assignee?.fullName?.charAt(0)?.toUpperCase() || 'U'}
                       </div>
-                      <span className="text-sm text-gray-600">{lead.assignee?.fullName || 'Unassigned'}</span>
+                      <span className="text-xs font-semibold text-slate-600">{lead.assignee?.fullName || 'Unassigned'}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
+                  <td className="px-6 py-4 text-xs font-medium text-slate-400">
                     {new Date(lead.createdAt).toLocaleDateString()}
                   </td>
-                  <td className="px-6 py-4 text-right">
-                    <button className="p-2 text-gray-400 hover:text-blue-600">
-                      <ExternalLink size={18} />
+                  <td className="px-6 py-4 text-right" onClick={e => e.stopPropagation()}>
+                    <button 
+                      onClick={() => handleOpenDrawer(lead.id)}
+                      className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-all"
+                    >
+                      <ChevronRight size={16} />
                     </button>
                   </td>
                 </tr>
@@ -236,31 +453,283 @@ export default function LeadsPage() {
         </div>
       </div>
 
+      {/* Slide-out Drawer Panel */}
+      {selectedLeadId && (
+        <>
+          {/* Backdrop */}
+          <div 
+            onClick={handleCloseDrawer}
+            className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-40 transition-opacity"
+          />
+
+          {/* Drawer content */}
+          <div className="fixed inset-y-0 right-0 w-full md:w-[480px] bg-white border-l border-slate-100 shadow-2xl z-50 flex flex-col transition-all duration-300">
+            {isDrawerLoading ? (
+              <div className="flex-1 flex flex-col items-center justify-center gap-3">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900" />
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Loading details...</p>
+              </div>
+            ) : detailedLead ? (
+              <>
+                {/* Header */}
+                <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900">{detailedLead.clientName}</h3>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="px-2 py-0.5 bg-slate-900 text-white rounded font-mono text-[9px] uppercase font-bold tracking-wider">
+                        {detailedLead.vehicleNo || 'NO PLATE'}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-bold">{detailedLead.city || 'Out of City'}</span>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={handleCloseDrawer}
+                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {/* Tabs */}
+                <div className="px-6 border-b border-slate-100 flex gap-4 text-xs font-bold bg-white">
+                  <button 
+                    onClick={() => setActiveTab('info')}
+                    className={`py-3.5 border-b-2 transition-all uppercase tracking-wider ${
+                      activeTab === 'info' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    Overview
+                  </button>
+                  <button 
+                    onClick={() => setActiveTab('call')}
+                    className={`py-3.5 border-b-2 transition-all uppercase tracking-wider ${
+                      activeTab === 'call' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    Log Activity ({detailedLead.calls?.length || 0})
+                  </button>
+                  <button 
+                    onClick={() => setActiveTab('whatsapp')}
+                    className={`py-3.5 border-b-2 transition-all uppercase tracking-wider ${
+                      activeTab === 'whatsapp' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    WhatsApp Templates
+                  </button>
+                </div>
+
+                {/* Body */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                  {/* TAB 1: OVERVIEW */}
+                  {activeTab === 'info' && (
+                    <div className="space-y-6">
+                      {/* Lead Status Card Controls */}
+                      <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                        <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Configure lead status</label>
+                        <select 
+                          value={detailedLead.status || 'New'}
+                          onChange={e => handleUpdateLeadStatus(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-slate-100"
+                        >
+                          <option value="New">New Lead</option>
+                          <option value="In Progress">In Progress</option>
+                          <option value="Follow Up">Follow Up Needed</option>
+                          <option value="Converted">Converted Account</option>
+                          <option value="Lost">Lost Opportunity</option>
+                        </select>
+                      </div>
+
+                      {/* Lead Assignee Card Controls */}
+                      <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                        <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Assign to auto advisor</label>
+                        <select 
+                          value={detailedLead.assignedTo || 'unassigned'}
+                          onChange={e => handleUpdateLeadAssignee(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-slate-100"
+                        >
+                          <option value="unassigned">Unassigned (Leave Open)</option>
+                          {employees.map(emp => (
+                            <option key={emp.id} value={emp.id}>{emp.fullName} ({emp.role?.name})</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Client Card details */}
+                      <div className="space-y-4">
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Metadata sheet</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                          <DetailItem label="Client Phone" value={detailedLead.clientPhone || 'N/A'} isCopyable />
+                          <DetailItem label="Client Email" value={detailedLead.clientEmail || 'N/A'} />
+                          <DetailItem label="Gross Vehicle Weight (GVW)" value={detailedLead.gvw || 'N/A'} />
+                          <DetailItem label="City Location" value={detailedLead.city || 'N/A'} />
+                          <DetailItem label="Policy Expiry Date" value={detailedLead.expiryDate ? new Date(detailedLead.expiryDate).toLocaleDateString() : 'N/A'} />
+                          <DetailItem label="Created On" value={new Date(detailedLead.createdAt).toLocaleDateString()} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 2: CALL LOG TIMELINE HISTORY */}
+                  {activeTab === 'call' && (
+                    <div className="space-y-6">
+                      {/* Log form */}
+                      <form onSubmit={handleLogCallResponse} className="bg-slate-50 border border-slate-100 rounded-2xl p-5 space-y-4">
+                        <h5 className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Log outbound calling interaction</h5>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1">Call Outcome</label>
+                            <select 
+                              value={logOutcome}
+                              onChange={e => setLogOutcome(e.target.value)}
+                              className="w-full bg-white border border-slate-200 rounded-xl p-2 text-xs font-bold text-slate-800 outline-none"
+                            >
+                              <option value="Connected">Connected</option>
+                              <option value="In Progress">Busy / Calling</option>
+                              <option value="Follow Up">Callback Requested</option>
+                              <option value="Lost">Failed / Switched Off</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1">Followup Date (Optional)</label>
+                            <input 
+                              type="date"
+                              value={logFollowupDate}
+                              onChange={e => setLogFollowupDate(e.target.value)}
+                              className="w-full bg-white border border-slate-200 rounded-xl p-1.5 text-xs text-slate-800 outline-none"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1">Conversation Notes / Brief</label>
+                          <textarea 
+                            required
+                            placeholder="Add brief details about renewal conversion or client constraints..."
+                            rows={3}
+                            value={logNotes}
+                            onChange={e => setLogNotes(e.target.value)}
+                            className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 outline-none resize-none"
+                          />
+                        </div>
+                        <button 
+                          type="submit"
+                          disabled={isLogging}
+                          className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold uppercase transition-all disabled:opacity-50"
+                        >
+                          <Phone size={14} /> {isLogging ? 'Logging...' : 'Log Response'}
+                        </button>
+                      </form>
+
+                      {/* Log Timeline */}
+                      <div className="space-y-4">
+                        <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Chronological Call Logs History</h5>
+                        {detailedLead.calls && detailedLead.calls.length > 0 ? (
+                          <div className="space-y-4 border-l border-slate-100 pl-4 ml-2">
+                            {detailedLead.calls.map((c: any) => (
+                              <div key={c.id} className="relative space-y-1">
+                                <div className="absolute -left-6.5 top-0.5 bg-slate-900 border-4 border-white rounded-full w-4 h-4" />
+                                <div className="flex items-center justify-between text-[10px]">
+                                  <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${
+                                    c.outcome === 'Connected' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
+                                    c.outcome === 'Follow Up' ? 'bg-amber-50 border-amber-200 text-amber-600' :
+                                    'bg-rose-50 border-rose-200 text-rose-600'
+                                  }`}>
+                                    {c.outcome}
+                                  </span>
+                                  <span className="text-slate-400 font-medium">{new Date(c.createdAt).toLocaleString()}</span>
+                                </div>
+                                <p className="text-xs text-slate-700 font-medium bg-slate-50 p-2.5 rounded-xl border border-slate-100">{c.notes || 'No description notes added.'}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-400 italic">No communication logs recorded yet.</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 3: WHATSAPP TEMPLATES REDIRECT */}
+                  {activeTab === 'whatsapp' && (
+                    <div className="space-y-6">
+                      {/* Template Selector */}
+                      <div>
+                        <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Choose messaging script template</label>
+                        <select 
+                          value={selectedTemplateId}
+                          onChange={e => setSelectedTemplateId(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 text-xs font-bold text-slate-800 outline-none"
+                        >
+                          {WHATSAPP_TEMPLATES.map(t => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Message Live Preview Card */}
+                      <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5 relative">
+                        <label className="absolute right-4 top-4 text-[9px] bg-slate-200 text-slate-600 font-bold px-2 py-0.5 rounded uppercase">Preview</label>
+                        <h6 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Compiled Text</h6>
+                        <pre className="text-xs font-mono text-slate-700 bg-white p-3 rounded-xl border border-slate-100 whitespace-pre-wrap leading-relaxed shadow-sm">
+                          {getWhatsAppText()}
+                        </pre>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex gap-2.5">
+                        <button 
+                          onClick={() => handleCopyTemplate(getWhatsAppText())}
+                          className="flex-1 flex items-center justify-center gap-2 py-3 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl text-xs font-bold transition-all"
+                        >
+                          <Clipboard size={14} />
+                          {copiedText ? 'Copied!' : 'Copy Script'}
+                        </button>
+                        <a 
+                          href={`https://api.whatsapp.com/send?phone=91${detailedLead.clientPhone}&text=${encodeURIComponent(getWhatsAppText())}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 flex items-center justify-center gap-2 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+                        >
+                          <MessageCircle size={14} />
+                          Open WhatsApp
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : null}
+          </div>
+        </>
+      )}
+
       {/* Add Lead Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl">
-            <h2 className="text-xl font-bold mb-6">Add New Lead</h2>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl border border-slate-100 transition-all duration-300">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-black text-slate-900">Add New Lead</h2>
+              <button onClick={() => setShowAddModal(false)} className="p-1 hover:bg-slate-100 rounded-lg text-slate-400"><X size={18} /></button>
+            </div>
             <form onSubmit={handleAddLead} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Owner Name *</label>
-                <input required type="text" className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm" value={newLead.clientName} onChange={e => setNewLead({...newLead, clientName: e.target.value})} />
+                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Owner Name *</label>
+                <input required type="text" className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 text-xs outline-none" value={newLead.clientName} onChange={e => setNewLead({...newLead, clientName: e.target.value})} placeholder="e.g. John Doe" />
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Phone Number *</label>
-                <input required type="text" className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm" value={newLead.clientPhone} onChange={e => setNewLead({...newLead, clientPhone: e.target.value})} />
+                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Phone Number *</label>
+                <input required type="text" className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 text-xs outline-none" value={newLead.clientPhone} onChange={e => setNewLead({...newLead, clientPhone: e.target.value})} placeholder="e.g. +919876543210" />
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Vehicle Number *</label>
-                <input required type="text" className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm" value={newLead.vehicleNo} onChange={e => setNewLead({...newLead, vehicleNo: e.target.value})} />
+                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Vehicle Number *</label>
+                <input required type="text" className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 text-xs outline-none" value={newLead.vehicleNo} onChange={e => setNewLead({...newLead, vehicleNo: e.target.value})} placeholder="e.g. MH-12-AB-1234" />
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Email (Optional)</label>
-                <input type="email" className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm" value={newLead.clientEmail} onChange={e => setNewLead({...newLead, clientEmail: e.target.value})} />
+                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Email (Optional)</label>
+                <input type="email" className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 text-xs outline-none" value={newLead.clientEmail} onChange={e => setNewLead({...newLead, clientEmail: e.target.value})} placeholder="e.g. john@gmail.com" />
               </div>
               <div className="flex gap-3 mt-8">
-                <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl text-sm font-bold">Cancel</button>
-                <button disabled={isSubmitting} type="submit" className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-200">
+                <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold">Cancel</button>
+                <button disabled={isSubmitting} type="submit" className="flex-1 px-4 py-3 bg-slate-900 text-white rounded-xl text-xs font-bold shadow-lg">
                   {isSubmitting ? 'Saving...' : 'Save Lead'}
                 </button>
               </div>
@@ -272,18 +741,51 @@ export default function LeadsPage() {
   )
 }
 
-function StatCard({ title, value, icon, color }: any) {
+function StatCard({ title, value, icon, color, isActive, onClick }: any) {
   return (
-    <div className={`p-6 rounded-2xl border border-gray-100 shadow-sm ${color}`}>
+    <div 
+      onClick={onClick}
+      className={`p-6 rounded-2xl border transition-all duration-200 cursor-pointer ${color} ${
+        isActive 
+          ? 'border-slate-900 ring-2 ring-slate-100 shadow-md transform scale-[1.01]' 
+          : 'border-slate-100 shadow-sm hover:shadow'
+      }`}
+    >
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+          <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{title}</p>
+          <p className="text-3xl font-black text-slate-900 mt-1">{value}</p>
         </div>
-        <div className="p-3 bg-white rounded-xl shadow-sm">
+        <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl shadow-inner">
           {icon}
         </div>
       </div>
+    </div>
+  )
+}
+
+function DetailItem({ label, value, isCopyable }: { label: string; value: string; isCopyable?: boolean }) {
+  const [copied, setCopied] = useState(false)
+  
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    navigator.clipboard.writeText(value)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  return (
+    <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 relative group">
+      <span className="block text-[8px] font-black text-slate-400 uppercase tracking-widest">{label}</span>
+      <span className="block text-xs font-bold text-slate-700 mt-1 truncate">{value}</span>
+      {isCopyable && value !== 'N/A' && (
+        <button 
+          onClick={handleCopy}
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-slate-600 bg-white border border-slate-200 rounded transition-all text-[8px] font-bold"
+        >
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
+      )}
     </div>
   )
 }
